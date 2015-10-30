@@ -44,11 +44,15 @@ sub _build_gd {
     return $gd;
 }
 
-before('draw', sub {
-    my ($self, $comp) = @_;
+around('draw', sub {
+    my ($cont, $self, $comp) = @_;
 
+    my ($x, $y) = ($self->current_x, $self->current_y);
     my $o = $comp->origin;
-    $self->move_to($o->x, $o->y);
+
+    $self->rel_move_to($o->x, $o->y);
+    $cont->($self, $comp);
+    $self->move_to($x, $y);
 });
 
 sub data {
@@ -94,8 +98,8 @@ sub get_text_bounding_box {
             x => 0,
             y => 0,
         ),
-        width   => $bounds[4],
-        height  => $bounds[1]
+        width   => ($bounds[2] > $bounds[4] ? $bounds[2] : $bounds[4]) - ($bounds[0] > $bounds[6] ? $bounds[6] : $bounds[0]),
+        height  => ($bounds[1] > $bounds[3] ? $bounds[1] : $bounds[3]) - ($bounds[5] > $bounds[7] ? $bounds[7] : $bounds[5]),
     );
 
     my $cb = $tbr;
@@ -366,8 +370,13 @@ sub _draw_line {
 
     my $gd = $self->gd;
 
-    my $end = $line->end;
-    $gd->line($self->current_x, $self->current_y, $end->x, $end->y, gdStyled);
+    my $end   = $line->end;
+    my $start = $line->start;
+    my $dx    = $end->x - $start->x;
+    my $dy    = $end->y - $start->y;
+
+    $gd->line($self->current_x, $self->current_y, $self->current_x + $dx, $self->current_y + $dy, gdStyled);
+    $self->rel_move_to($dx, $dy);
 }
 
 sub _draw_path {
@@ -381,17 +390,7 @@ sub _draw_path {
         $self->_do_fill($op);
     }
 
-
-    # If preserve count is set we've "preserved" a path that's made up 
-    # of X primitives.  Set the sentinel to the the count so we skip that
-    # many primitives
-    # my $pc = $self->_preserve_count;
-    # if($pc) {
-    #     $self->_preserve_count(0);
-    # } else {
-    #     $context->new_path;
-    # }
-
+    my ($x, $y) = ($self->current_x, $self->current_y);
     my $pcount = $path->primitive_count;
     for(my $i = 0; $i < $pcount; $i++) {
         my $prim = $path->get_primitive($i);
@@ -400,7 +399,7 @@ sub _draw_path {
         if(defined($hints)) {
             unless($hints->{contiguous}) {
                 my $ps = $prim->point_start;
-                $self->move_to($ps->x, $ps->y);
+                $self->move_to($x + $ps->x, $y + $ps->y);
             }
         }
 
@@ -421,10 +420,7 @@ sub _draw_path {
             $self->_draw_polygon($prim);
         }
     }
-
-    if($op->preserve) {
-        $self->_preserve_count($path->primitive_count);
-    }
+    $self->move_to($x, $y);
 }
 
 sub _draw_polygon {
